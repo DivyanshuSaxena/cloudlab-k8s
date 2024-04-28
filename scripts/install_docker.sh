@@ -8,17 +8,15 @@ Install docker, kubernetes and helm.
 
 -h, -help,      --help        Display help
 -i, -init,      --init        Whether installing docker for the first time
--n, -cni,       --cni         Whether to setup the default CNI (false for cilium)
 -c, -control,   --control     Is the node a control node
 
 EOF
 }
 
 INIT=0
-CNI=0
 IS_CONTROL_NODE=0
 
-options=$(getopt -l "help,init,control,cni" -o "hicn" -a -- "$@")
+options=$(getopt -l "help,init,control" -o "hic" -a -- "$@")
 
 eval set -- "$options"
 
@@ -30,9 +28,6 @@ while true; do
       ;;
   -i|--init)
       INIT=1
-      ;;
-  -n|--cni)
-      CNI=1
       ;;
   -c|--control)
       IS_CONTROL_NODE=1
@@ -66,7 +61,7 @@ if [[ $INIT -eq 1 ]]; then
     sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
   sudo apt-get update
 
-  sudo apt-get install -y docker-ce=5:24.0.5-1~ubuntu.20.04~focal docker-ce-cli=5:24.0.5-1~ubuntu.20.04~focal containerd.io docker-compose-plugin
+  sudo apt-get install -y docker-ce=5:25.0.5-1~ubuntu.22.04~jammy docker-ce-cli=5:25.0.5-1~ubuntu.22.04~jammy containerd.io docker-compose-plugin
 
   # Change the data-root for docker
   mkdir -p /mydata/local/docker
@@ -85,8 +80,10 @@ if [[ $INIT -eq 1 ]]; then
   sudo apt-get update
   sudo apt-get install -y apt-transport-https ca-certificates curl
 
-  curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-archive-keyring.gpg
-  echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+  curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  sudo chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+  sudo chmod 644 /etc/apt/sources.list.d/kubernetes.list
 
   sudo apt-get update
   sudo apt-get install -y kubelet kubeadm kubectl
@@ -126,11 +123,8 @@ else
   mkdir -p $HOME/.kube
   sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
   sudo chown $(id -u):$(id -g) $HOME/.kube/config
-
-  if [[ $CNI -eq 1 ]]; then
-    # Install CNI
-    sudo kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-  fi
+  
+  sudo kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
   
   sleep 10
   
