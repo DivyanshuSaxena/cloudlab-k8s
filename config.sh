@@ -42,34 +42,34 @@ wait
 
 rm -f $TARBALL
 
-# # Before anything, update linux kernel
-# for host in $HOSTS; do
-#   echo "Updating kernel on $host ..."
-#   ssh -o StrictHostKeyChecking=no $host "./scripts/update_kernel.sh 2>&1" &
-# done
-# wait
+# Before anything, update linux kernel
+for host in $HOSTS; do
+  echo "Updating kernel on $host ..."
+  ssh -o StrictHostKeyChecking=no $host "./scripts/update_kernel.sh 2>&1" &
+done
+wait
 
-# # Wait for the nodes to reboot
-# sleep 1m
-# echo "Waiting for nodes to reboot ..."
+# Wait for the nodes to reboot
+sleep 1m
+echo "Waiting for nodes to reboot ..."
 
-# # Check if the nodes are reachable via a SSH command every 1 minute
-# while [ 1 ]; do
-#   FLAG=0
-#   for host in $HOSTS; do
-#     HOSTNAME=$(echo $host | awk -F'@' '{print $2}')
-#     nc -zw 1 $HOSTNAME 22 > /dev/null
-#     OUT=$?
-#     if [ $OUT -eq 1 ] ; then
-#       echo "Waiting for $host to come up ..."
-#       FLAG=1
-#       sleep 1m
-#     fi
-#   done
-#   if [ $FLAG -eq 0 ]; then
-#     break
-#   fi
-# done
+# Check if the nodes are reachable via a SSH command every 1 minute
+while [ 1 ]; do
+  FLAG=0
+  for host in $HOSTS; do
+    HOSTNAME=$(echo $host | awk -F'@' '{print $2}')
+    nc -zw 1 $HOSTNAME 22 > /dev/null
+    OUT=$?
+    if [ $OUT -eq 1 ] ; then
+      echo "Waiting for $host to come up ..."
+      FLAG=1
+      sleep 1m
+    fi
+  done
+  if [ $FLAG -eq 0 ]; then
+    break
+  fi
+done
 
 # Increase space on the nodes
 for host in $HOSTS ; do
@@ -89,7 +89,7 @@ CONTROL_NODE=$(echo $HOSTS | head -1 | awk '{print $1}')
 
 # Setup control node
 echo "Building on control node ${CONTROL_NODE}"
-ssh -o StrictHostKeyChecking=no ${CONTROL_NODE} "cd \$HOME; ./scripts/install_docker.sh --init --control > install_docker.log 2>&1"
+ssh -o StrictHostKeyChecking=no ${CONTROL_NODE} "cd \$HOME; ./scripts/install_docker.sh --init --control --cni calico > install_docker.log 2>&1"
 
 # Get the join command
 scp -rq -o StrictHostKeyChecking=no ${CONTROL_NODE}:~/command.txt command.txt >/dev/null 2>&1
@@ -120,7 +120,7 @@ for host in $HOSTS ; do
   ssh -o StrictHostKeyChecking=no $host "tmux new-session -d -s config \"
     cd \$HOME &&
     sudo apt-get update &&
-    sudo apt install -y clang llvm gcc-multilib libelf-dev libpcap-dev build-essential &&
+    sudo apt install -y clang llvm gcc-multilib libelf-dev libpcap-dev build-essential libssl-dev &&
     sudo apt install -y linux-tools-common linux-tools-generic linux-headers-generic &&
     sudo apt install -y linux-tools-\$(uname -r) linux-headers-\$(uname -r) &&
     sudo apt install -y tcpdump jq &&

@@ -10,7 +10,7 @@ if [[ $# -lt 3 ]]; then
   exit 1
 fi
 
-HOSTS=`./nodes.sh $1 $2 $3 --all`
+HOSTS=`./cloudlab/nodes.sh $1 $2 $3 --all`
 
 TARBALL=scripts.tar.gz
 tar -czf $TARBALL scripts/
@@ -22,7 +22,7 @@ done
 wait
 
 for host in $HOSTS; do
-  ssh -o StrictHostKeyChecking=no $host "mkdir -p scripts; tar -xzf $TARBALL 2>&1" &
+  ssh -o StrictHostKeyChecking=no $host "mkdir -p scripts; tar -xzf $TARBALL 2>&1; sudo swapoff -a" &
 done
 wait
 
@@ -33,22 +33,28 @@ CONTROL_NODE=$(echo $HOSTS | head -1 | awk '{print $1}')
 
 # Setup control node
 echo "Resetting on control node ${CONTROL_NODE}"
-ssh -o StrictHostKeyChecking=no ${CONTROL_NODE} "cd \$HOME; ./scripts/install_docker.sh --control > install_docker.log 2>&1"
+ssh -o StrictHostKeyChecking=no ${CONTROL_NODE} "cd \$HOME; ./scripts/install_docker.sh --control --cni calico > install_docker.log 2>&1"
 
 # Get the join command
 scp -rq -o StrictHostKeyChecking=no ${CONTROL_NODE}:~/command.txt command.txt >/dev/null 2>&1
+
+# Get the admin.conf file
+ssh -o StrictHostKeyChecking=no ${CONTROL_NODE} "cd \$HOME; sudo cp /etc/kubernetes/admin.conf .; sudo chmod 644 admin.conf"
+scp -rq -o StrictHostKeyChecking=no ${CONTROL_NODE}:~/admin.conf admin.conf >/dev/null 2>&1
 
 # Setup worker nodes
 for host in $HOSTS; do
   if [[ "$host" != "${CONTROL_NODE}" ]]; then
     echo "Resetting $host ..."
     scp -rq -o StrictHostKeyChecking=no command.txt $host:~/ >/dev/null 2>&1
+    scp -rq -o StrictHostKeyChecking=no admin.conf $host:~/ >/dev/null 2>&1
     ssh -o StrictHostKeyChecking=no $host "cd \$HOME; sudo ./scripts/install_docker.sh > install_docker.log 2>&1" &
   fi
 done
 wait
 
 rm command.txt
+rm admin.conf
 
 # After joining the nodes, make a rollout restart of coredns on control node.
 # ssh -o StrictHostKeyChecking=no ${CONTROL_NODE} "kubectl -n kube-system rollout restart deployment coredns"

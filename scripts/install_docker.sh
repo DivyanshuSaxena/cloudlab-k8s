@@ -9,14 +9,16 @@ Install docker, kubernetes and helm.
 -h, -help,      --help        Display help
 -i, -init,      --init        Whether installing docker for the first time
 -c, -control,   --control     Is the node a control node
+-n, -cni,       --cni         Install CNI plugin (flannel/calico/cilium)
 
 EOF
 }
 
 INIT=0
 IS_CONTROL_NODE=0
+CNI="flannel"
 
-options=$(getopt -l "help,init,control" -o "hic" -a -- "$@")
+options=$(getopt -l "help,init,control,cni:" -o "hicn:" -a -- "$@")
 
 eval set -- "$options"
 
@@ -31,6 +33,10 @@ while true; do
       ;;
   -c|--control)
       IS_CONTROL_NODE=1
+      ;;
+  -n|--cni)
+      shift
+      CNI=$1
       ;;
   --)
       shift
@@ -75,6 +81,14 @@ if [[ $INIT -eq 1 ]]; then
   # Adding a sleep so that kubernetes can be installed after docker
   sleep 30
 
+  # <============= Prepare for k8s ============>
+  # Install CRI-docker, needed by kubeadm to interact with docker engine
+  wget https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.13/cri-dockerd_0.3.13.3-0.ubuntu-jammy_amd64.deb
+  sudo chmod +x cri-dockerd_0.3.13.3-0.ubuntu-jammy_amd64.deb
+  sudo dpkg -i cri-dockerd_0.3.13.3-0.ubuntu-jammy_amd64.deb
+
+  sudo swapoff -a
+
   # <=========== Install Kubernetes ===========>
   # Install Kubectl
   sudo apt-get update
@@ -87,9 +101,6 @@ if [[ $INIT -eq 1 ]]; then
 
   sudo apt-get update
   sudo apt-get install -y kubelet kubeadm kubectl
-
-  # Initialize kubeadm cluster
-  sudo swapoff -a
 
   sudo rm -f /etc/containerd/config.toml
 
@@ -110,7 +121,7 @@ if [[ $INIT -eq 1 ]]; then
 fi
 
 # Reset kubadm, if already present.
-sudo kubeadm reset -f
+sudo kubeadm reset -f --cri-socket=unix:///var/run/cri-dockerd.sock
 sudo rm -rf ~/.kube
 
 if [[ ${IS_CONTROL_NODE} -eq 0 ]]; then
@@ -118,18 +129,28 @@ if [[ ${IS_CONTROL_NODE} -eq 0 ]]; then
   sudo $CMD
 else
   echo "Setting up Control Node"
-  sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+  if [[ $CNI == "calico" ]]; then
+    sudo kubeadm init --pod-network-cidr=192.168.0.0/16 --cri-socket=unix:///var/run/cri-dockerd.sock
+  else
+    sudo kubeadm init --pod-network-cidr=10.244.0.0/16 --cri-socket=unix:///var/run/cri-dockerd.sock
+  fi
 
   mkdir -p $HOME/.kube
   sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
   sudo chown $(id -u):$(id -g) $HOME/.kube/config
-  
-  sudo kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-  
+
+  if [[ $CNI == "calico" ]]; then
+    sudo kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.3/manifests/tigera-operator.yaml
+    sudo kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.3/manifests/custom-resources.yaml
+    sleep 30
+  elif [[ $CNI == "flannel" ]]; then
+    sudo kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+  fi
+
   sleep 10
   
   CMD=$(sudo kubeadm token create --print-join-command)
-  echo $CMD > ./command.txt
+  echo "$CMD --cri-socket=unix:///var/run/cri-dockerd.sock" > ./command.txt
 
   # Mark this node for scheduling as well
   kubectl taint nodes --all node-role.kubernetes.io/control-plane-
