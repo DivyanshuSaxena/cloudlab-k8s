@@ -3,7 +3,7 @@
 
 showHelp() {
 cat << EOF  
-Usage: <script_name> [-ic]
+Usage: <script_name> [-ic] [-n]
 Install docker, kubernetes and helm.
 
 -h, -help,      --help        Display help
